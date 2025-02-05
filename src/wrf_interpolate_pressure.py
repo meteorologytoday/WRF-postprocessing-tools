@@ -5,25 +5,10 @@ import os.path
 import re
 from datetime import datetime
 
-
-def anyIn(arrA, arrB):
-    return np.any([a in arrB for a in arrA])
-
-def allIn(arrA, arrB):
-    return np.all([a in arrB for a in arrA])
-
-def findArg(arr, target):
-
-    for i, x in enumerate(arr):
-        
-        if x == target:
-            
-            return i
-
-    return -1
+default_pressure_levs = [1000, 925, 850, 700, 500, 300, 200, 100, 50, 10]
 
 
-def interpolatePressure(ds, varnames, p=[1000, 925, 850, 700, 500, 300, 200, 100, 50, 10]):
+def interpolatePressure(ds, varnames, p):
    
 
     # Pressure must be monotincally increasing when interpolating
@@ -106,7 +91,7 @@ def interpolatePressure(ds, varnames, p=[1000, 925, 850, 700, 500, 300, 200, 100
     return new_ds
 
 
-def generatePressureDiag(ds):
+def generatePressureDiag(ds, p = default_pressure_levs):
 
     U_U  = ds["U"].drop_vars(["XLAT_U", "XLONG_U"])
     V_V  = ds["V"].drop_vars(["XLAT_V", "XLONG_V"])
@@ -134,7 +119,7 @@ def generatePressureDiag(ds):
    
     merged_ds = xr.merge(merged_ds)
  
-    new_ds = interpolatePressure(merged_ds, ["U", "V", "W",  "PH", "QVAPOR"])
+    new_ds = interpolatePressure(merged_ds, ["U", "V", "W",  "PH", "QVAPOR"], p=p)
     
     return new_ds 
  
