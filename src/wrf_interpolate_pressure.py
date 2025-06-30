@@ -5,7 +5,7 @@ import os.path
 import re
 from datetime import datetime
 
-default_pressure_levs = [1000, 925, 850, 700, 500, 300, 200, 100, 50, 10]
+default_pressure_levs = [1000, 925, 850, 700, 600, 500, 400, 300, 200, 100, 50, 10]
 
 
 def interpolatePressure(ds, varnames, p):
@@ -101,7 +101,8 @@ def generatePressureDiag(ds, p = default_pressure_levs):
 
     U_T = (U_U + U_U.shift(west_east_stag=-1)) / 2.0
     U_T = U_T.isel(west_east_stag=slice(None, -1)).rename({'west_east_stag' : 'west_east'}).rename("U")
- 
+
+
     V_T = (V_V + V_V.shift(south_north_stag=-1)) / 2.0
     V_T = V_T.isel(south_north_stag=slice(None, -1)).rename({'south_north_stag' : 'south_north'}).rename("V")
 
@@ -112,14 +113,35 @@ def generatePressureDiag(ds, p = default_pressure_levs):
     PH_T = PH_T.isel(bottom_top_stag=slice(None, -1)).rename({'bottom_top_stag' : 'bottom_top'}).rename("PH")
 
 
-    merged_ds = [U_T, V_T, W_T, PH_T]
+    # Rotate velocity to zonal and meridional
+    Uzl_T = U_T * ds["COSALPHA"] - V_T * ds["SINALPHA"]
+    Vml_T = V_T * ds["COSALPHA"] + U_T * ds["SINALPHA"]
+
+    Uzl_T = Uzl_T.rename("Uzl")
+    Vml_T = Vml_T.rename("Vml")
+    
+    # Vorticity and Divergence
+    VORT_Upart = - (U_T.shift(south_north=-1) - U_T.shift(south_north=1)) * ds["RDY"] / 2
+    VORT_Vpart =   (V_T.shift(west_east=-1)   - V_T.shift(west_east=1))   * ds["RDX"] / 2
+    VORT_T = ( VORT_Upart +  VORT_Vpart ).rename("VORT")
+
+    DIV_Upart = (U_U - U_U.shift(west_east_stag=1)) * ds["RDX"]
+    DIV_Upart = DIV_Upart.isel(west_east_stag=slice(1, None)).rename({'west_east_stag' : 'west_east'})
+    DIV_Vpart = (V_V - V_V.shift(south_north_stag=1)) * ds["RDY"]
+    DIV_Vpart = DIV_Vpart.isel(south_north_stag=slice(1, None)).rename({'south_north_stag' : 'south_north'})
+    DIV_T = ( DIV_Upart +  DIV_Vpart ).rename("DIV")
+
+
+
+ 
+    merged_ds = [Uzl_T, Vml_T, W_T, PH_T, VORT_T, DIV_T]
 
     for varname in ["T", "P", "PB", "QVAPOR", ]:
         merged_ds.append(ds[varname])
    
     merged_ds = xr.merge(merged_ds)
  
-    new_ds = interpolatePressure(merged_ds, ["U", "V", "W",  "PH", "QVAPOR"], p=p)
+    new_ds = interpolatePressure(merged_ds, ["Uzl", "Vml", "VORT", "DIV", "W",  "PH", "QVAPOR"], p=p)
     
     return new_ds 
  

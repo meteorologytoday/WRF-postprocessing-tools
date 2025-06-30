@@ -13,8 +13,36 @@ import wrf_tools
 import wrf_AR_analysis
 import wrf_interpolate_pressure
 
+def check(filename, varnames):
 
-pressure_levs = [1000, 925, 850, 700, 500, 300, 200, 100, 50, 10]
+    try:    
+        ds = xr.open_dataset(filename, engine="netcdf4")
+    except Exception as e:
+        
+        print("Open file error. Conclude as all missing.")
+    
+        missing_varnames = [varname for varname in varnames]
+        
+        return missing_varnames
+
+    ds_varnames = list(ds.keys())
+    
+    missing_varnames = []
+
+    for varname in varnames:
+        if varname not in ds_varnames:
+            missing_varnames.append(varname)
+
+    if len(missing_varnames) == 0:
+        missing_varnames = None
+
+    return missing_varnames
+
+
+
+
+
+pressure_levs = [1000, 925, 850, 700, 600, 500, 400, 300, 200, 100, 50, 10]
 
 def doWork(details):
     
@@ -23,19 +51,75 @@ def doWork(details):
 
     input_file = Path(details["input_file"])
     output_file = Path(details["output_file"])
+    check_policy = details["check_policy"]
+    check_varnames = details["check_varnames"]
+    overwrite = details["overwrite"]
     
     try:
 
+        do_work = None
 
-        output_dir = output_file.parents[0]
-        output_dir.mkdir(parents=True, exist_ok=True)
+        if overwrite:
 
-        print("Input file: ", input_file)
-        ds_original = xr.open_dataset(input_file, engine="netcdf4")
-        ds_diag = generateReduction(ds_original)
+            do_work = True
 
-        print("Writing output: ", output_file)
-        ds_diag.to_netcdf(output_file)
+        else:
+
+            # Check if output file is good
+            if check_policy == "exist":
+                         
+                if output_file.exists():
+                    
+                    do_work = False
+                    
+            elif check_policy == "varnames":        
+                
+                if output_file.exists():
+                    missing_varnames = check(output_file, check_varnames) 
+
+                    if missing_varnames is None:
+                        
+                       do_work = False
+
+                    else:
+                        
+                        print("File %s is not okay after checking. Missing variables: %s" % (str(output_file), ", ".join(missing_varnames)))
+                        do_work = True 
+                else:
+                    do_work = True 
+            else:
+                raise Exception("Error: check-policy %s does not exist." % (check_policy,))
+
+                
+
+        if do_work:
+            
+            output_dir = output_file.parents[0]
+            output_dir.mkdir(parents=True, exist_ok=True)
+
+            print("Input file: ", input_file)
+            ds_original = xr.open_dataset(input_file, engine="netcdf4")
+            ds_diag = generateReduction(ds_original)
+
+            print("Writing output: ", output_file)
+            ds_diag.to_netcdf(output_file)
+                    
+            print("Done. Now check it...")
+            missing_varnames = check(output_file, check_varnames) 
+            if missing_varnames is not None:
+                raise Exception("Error: File %s is not okay after checking. Missing variables: %s" % (str(output_file), ", ".join(missing_varnames)))
+            else:
+                print("File %s is good." % (str(output_file),))
+
+            # Explicitly close file IO.
+            #ds_diag.close()
+            #ds_original.close()
+
+        else:
+                    
+            print("[Check-policy=%s] We do not have to do file %s." % (check_policy, str(output_file),))
+            
+            
 
         result['status'] = "OK"
 
@@ -80,6 +164,10 @@ if __name__ == "__main__":
     parser.add_argument('--output', type=str, help='Output file or directory.', required=True)
     parser.add_argument('--overwrite', action="store_true")
     parser.add_argument('--nproc', type=int, help='Number of tasks.', default=1)
+    parser.add_argument('--number-of-files', type=int, help='Number of files in the directory to process. This is used when you just wanna do a few files', default=-1)
+    
+    parser.add_argument('--check-policy', type=str, help='Check policy. Allowed value: `exist`, `varnames`.', choices=["exist", "varnames"], default="exist")
+    parser.add_argument('--check-varnames', type=str, nargs="*", help='If `--check-policy` is `varnames`, then this will be used.', default=["SST", "IVT", "PSFC", "PH"])
 
     args = parser.parse_args()
 
@@ -97,14 +185,18 @@ if __name__ == "__main__":
         if input_path.is_file():
             print("Input is a file.")
             test_files.append([args.input, args.output])
-    
+        
         elif input_path.is_dir():
-           
-            for input_file in input_path.iterdir():
+            
+            for i, input_file in enumerate(sorted(input_path.iterdir())):
 
+                if i == args.number_of_files:
+                    print("`--number-of-files` reached. Break.")
+                    break
+                
                 output_file = output_path / input_file.name
-                if args.overwrite or (not output_file.exists()):
-                    test_files.append([input_file, output_file])
+                #if args.overwrite or (not output_file.exists()):
+                test_files.append([input_file, output_file])
 
             
         else:
@@ -123,6 +215,9 @@ if __name__ == "__main__":
         input_args.append((dict(
             input_file = input_file,
             output_file = output_file,
+            check_policy = args.check_policy,
+            check_varnames = args.check_varnames,
+            overwrite = args.overwrite,
         ),)) 
 
    
